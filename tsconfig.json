@@ -1,0 +1,8 @@
+{
+  "extends": "@tsconfig/react-native/tsconfig.json",
+  "compilerOptions": {
+    "target": "es2018", // or an earlier version
+    "lib": ["es2021", "dom"],
+    // Other options...
+  }
+}
