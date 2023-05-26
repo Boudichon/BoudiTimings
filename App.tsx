@@ -1,4 +1,4 @@
-import { Alert, Button, Text, TextInput, View } from 'react-native';
+import { Button, Text, TextInput, View } from 'react-native';
 import React, { useState } from 'react';
 import notifee, { TimestampTrigger, TriggerType } from '@notifee/react-native';
 
@@ -14,7 +14,6 @@ interface Timing {
 }
 
 const App = () => {
-  // const [selectedTimezone, setSelectedTimezone] = useState<string>('+01:00');
   const [displayPreview, setDisplayPreview] = useState(false);
   const [inputCommands, setInputCommands] = useState<string>('');
   const [delayInSeconds, setDelayInSeconds] = useState<string>('30');
@@ -37,30 +36,65 @@ const App = () => {
     return Number(delayInSeconds) * 1000;
   }
 
-  async function sendAttackNotif(timing: Timing) {
-    // Create a time-based trigger
-    var trigger: TimestampTrigger = {
-      type: TriggerType.TIMESTAMP,
-      timestamp: timing.date.getTime() - getDelayInMs(),
-    };
-
-    if (timing.date.getTime() - getDelayInMs() <= 0) {
-      trigger = undefined as unknown as TimestampTrigger;
+  async function updateNotificationIds(notifId: string) {
+    var notifIds: string | null = await AsyncStorage.getItem('notifIds');
+    if (!notifIds) {
+      notifIds = "";
     }
+    notifIds += notifId + ",";
+  }
 
-    // Create a trigger notification
-    await notifee.createTriggerNotification(
-      {
-        title: 'Attack to send',
-        body: timing.displayDate,
-        android: {
-          smallIcon: 'ic_boudilogo', // optional, defaults to 'ic_launcher'.
-          channelId: 'default',
-          // sound: 'alarm',
+  async function getNotificationIds() {
+    var notifIds: string | null = await AsyncStorage.getItem('notifIds');
+    if (!notifIds) {
+      notifIds = "";
+    }
+    return notifIds.split(',').filter(x => !!x);
+  }
+
+  async function sendAttackNotif(timing: Timing) {
+    var notifId = null;
+    if (timing.date.getTime() - getDelayInMs() <= 0) {
+      notifId = await notifee.displayNotification(
+        {
+          title: 'Attack to send',
+          body: timing.displayDate,
+          android: {
+            smallIcon: 'ic_boudilogo', // optional, defaults to 'ic_launcher'.
+            channelId: 'default',
+            // sound: 'alarm',
+          },
         },
-      },
-      trigger,
-    );
+      );
+    } else {
+      // Create a time-based trigger
+      var trigger: TimestampTrigger = {
+        type: TriggerType.TIMESTAMP,
+        timestamp: timing.date.getTime() - getDelayInMs(),
+      };
+
+      // Create a trigger notification
+      notifId = await notifee.createTriggerNotification(
+        {
+          title: 'Attack to send',
+          body: timing.displayDate,
+          android: {
+            smallIcon: 'ic_boudilogo', // optional, defaults to 'ic_launcher'.
+            channelId: 'default',
+            // sound: 'alarm',
+          },
+        },
+        trigger,
+      );
+    }
+    await updateNotificationIds(notifId);
+  }
+
+  async function handleResetClick() {
+    await notifee.cancelAllNotifications();
+    await BackgroundService.stop();
+    setDisplayPreview(false);
+    setIsRunning(false);
   }
 
   async function onStartCountdowns() {
@@ -150,12 +184,13 @@ const App = () => {
     setCommands(allDates);
   }
 
-  function getCurrentNextAttack(timings: Timing[] | undefined) {
+  function getNextAttack(timings: Timing[] | undefined) {
     if (!timings) return;
     var index = timings.findIndex(obj => obj.date > new Date());
     if (index < 0) return;
     return timings[index];
   }
+
   function getLastAttack(timings: Timing[] | undefined) {
     if (!timings) return;
     return timings[timings.length - 1];
@@ -179,6 +214,10 @@ const App = () => {
     }
   }
 
+  function dateToTime(date: Date | undefined) {
+    if (!date) return;
+    return moment(date).format("HH:mm:ss");
+  }
 
   async function background() {
     BackgroundService.stop();
@@ -206,8 +245,8 @@ const App = () => {
       console.log("START OF TASK");
       // Example of an infinite loop task
       await new Promise(async (resolve) => {
-        console.log(currentIndex, commands.length);
-        for (var i = currentIndex; i < commands.length; i++) {
+        var index = commands.findIndex(obj => obj.date > new Date());
+        for (var i = index; i < commands.length; i++) {
           console.log(commands[i].displayDate);
 
           // Schedule the notif
@@ -215,10 +254,11 @@ const App = () => {
 
           // Update the countdown
           while (commands[i].date.getTime() > new Date().getTime()) {
-            await sleep(1000);
+            if (!BackgroundService.isRunning()) { return; }
             var countdownText = formatDuration(commands[i].date.getTime() - new Date().getTime());
-            await BackgroundService.updateNotification({ taskTitle: 'Next attack in: ' + countdownText }); // Only Android, iOS will ignore this call
+            await BackgroundService.updateNotification({ taskTitle: 'Next attack in: ' + countdownText, taskDesc: "Launch at: " + dateToTime(commands[i].date) }); // Only Android, iOS will ignore this call
             setCountdownText(countdownText);
+            await sleep(1000);
           }
           console.log("Going to next!");
         }
@@ -251,23 +291,27 @@ const App = () => {
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingLeft: 20, paddingRight: 20 }}>
       {displayPreview ? (
         !isRunning ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ marginBottom: 10 }}>Amount of commands found: {commands?.length}</Text>
-          <Text style={{ marginBottom: 10 }}>Timing of the first command: {getCurrentNextAttack(commands)?.displayDate}</Text>
-          {getLastAttack(commands) && (
-            <Text style={{ marginBottom: 10 }}>Timing of the last command: {getLastAttack(commands)?.displayDate}</Text>
-          )}
-          <Text style={{ marginBottom: 10 }}>Click "Start" to launch the countdown and notifications</Text>
-          <View style={{ flexDirection: 'row' }}>
-            <View style={{ marginRight: 10 }}>
-              <Button title="Back" onPress={handleBackClick} />
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ marginBottom: 10 }}>Amount of commands found: {commands?.length}</Text>
+            <Text style={{ marginBottom: 10 }}>Timing of the next command: {getNextAttack(commands)?.displayDate}</Text>
+            {getLastAttack(commands) && (
+              <Text style={{ marginBottom: 10 }}>Timing of the last command: {getLastAttack(commands)?.displayDate}</Text>
+            )}
+            <Text style={{ marginBottom: 10 }}>Click "Start" to launch the countdown and notifications</Text>
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ marginRight: 10 }}>
+                <Button title="Back" onPress={handleBackClick} />
+              </View>
+              <Button title="Start" onPress={handleStartClick} />
             </View>
-            <Button title="Start" onPress={handleStartClick} />
           </View>
-        </View>
         ) : (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={{ fontSize: 20, fontWeight: "bold" }}>{countdownText}</Text>
+            <Text style={{ fontSize: 24, fontWeight: "bold", marginBottom: 20 }}>{countdownText}</Text>
+            <Text>Launch at {dateToTime(getNextAttack(commands)?.date)} (local time)</Text>
+            <View style={{ marginTop: 100 }}>
+              <Button title="Reset" onPress={handleResetClick} />
+            </View>
           </View>
         )
       ) : (
