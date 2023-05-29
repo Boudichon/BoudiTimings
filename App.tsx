@@ -2,7 +2,6 @@ import { Button, Text, TextInput, View } from 'react-native';
 import React, { useState } from 'react';
 import notifee, { TimestampTrigger, TriggerType } from '@notifee/react-native';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import BackgroundService from 'react-native-background-actions';
 import { Image } from 'react-native';
 import moment from 'moment';
@@ -36,33 +35,18 @@ const App = () => {
     return Number(delayInSeconds) * 1000;
   }
 
-  async function updateNotificationIds(notifId: string) {
-    var notifIds: string | null = await AsyncStorage.getItem('notifIds');
-    if (!notifIds) {
-      notifIds = "";
-    }
-    notifIds += notifId + ",";
-  }
-
-  async function getNotificationIds() {
-    var notifIds: string | null = await AsyncStorage.getItem('notifIds');
-    if (!notifIds) {
-      notifIds = "";
-    }
-    return notifIds.split(',').filter(x => !!x);
-  }
-
+  // Sends the notification for the specified timing based on the delay provided, or instantly if the delay is already passed.
   async function sendAttackNotif(timing: Timing) {
-    var notifId = null;
     if (timing.date.getTime() - getDelayInMs() <= 0) {
-      notifId = await notifee.displayNotification(
+      // Send it instantly
+      await notifee.displayNotification(
         {
           title: 'Attack to send',
           body: timing.displayDate,
           android: {
-            smallIcon: 'ic_boudilogo', // optional, defaults to 'ic_launcher'.
+            smallIcon: 'ic_boudilogo',
             channelId: 'default',
-            // sound: 'alarm',
+            sound: 'alarm',
           },
         },
       );
@@ -74,20 +58,19 @@ const App = () => {
       };
 
       // Create a trigger notification
-      notifId = await notifee.createTriggerNotification(
+      await notifee.createTriggerNotification(
         {
           title: 'Attack to send',
           body: timing.displayDate,
           android: {
-            smallIcon: 'ic_boudilogo', // optional, defaults to 'ic_launcher'.
+            smallIcon: 'ic_boudilogo',
             channelId: 'default',
-            // sound: 'alarm',
+            sound: 'alarm',
           },
         },
         trigger,
       );
     }
-    await updateNotificationIds(notifId);
   }
 
   async function handleResetClick() {
@@ -109,34 +92,17 @@ const App = () => {
 
   async function handleStartClick() {
     setIsRunning(true);
-    // startCountdownNotif();
     background();
   }
 
-  // function startCountdownNotif() {
-  //   notifee.displayNotification({
-  //     title: `Next attack at ${allDates[currentIndex].displayDate}`,
-  //     body: 'Body',
-  //     subtitle: 'Subtitle',
-  //     android: {
-  //       channelId: 'default',
-  //       showChronometer: true,
-  //       chronometerDirection: 'down',
-  //       timestamp: allDates[currentIndex].date.getTime(), // 5 minutes
-  //     },
-  //   });
-  // }
-
-  let allDates: Timing[] = [];
-  let currentIndex = 0;
 
   function checkAlLDates() {
-    allDates = [];
+    let allDates: Timing[] = [];
     var allLines = inputCommands.split('\n');
     var lastManualDate: string = "";
 
     for (var i = 0; i < allLines.length; i++) {
-      const line = allLines[i].trim(); // Trim whitespace from start and end of line
+      const line = allLines[i].trim();
 
       if (!line || line === "") {
         continue;
@@ -180,7 +146,6 @@ const App = () => {
       allDates.push(timing);
     }
     allDates.sort((a, b) => a.date?.getTime() - b.date?.getTime());
-    currentIndex = allDates.findIndex(obj => obj.date > new Date());
     setCommands(allDates);
   }
 
@@ -220,39 +185,19 @@ const App = () => {
   }
 
   async function background() {
+    // Stops ongoing background task, if there is any
     BackgroundService.stop();
-    // if (allDates[currentIndex].date.getTime() - new Date().getTime() > (1000 * 60 * 60 * 24)) {
-    //   Alert.alert("Warning",
-    //     "The next attack is more than 24 hours away. In order to avoid unnecessary battery drain, you should wait until the timings are closer.",
-    //     [
-    //       {
-    //         text: "OK", onPress: () => {
-    //           handleBackClick();
-    //         }
-    //       }
-    //     ]);
-    //   return;
-    // }
 
-    console.log("BACKGROUND TASK STARTED");
     const sleep = (time: any) => new Promise<void>((resolve) => setTimeout(() => resolve(), time));
 
-    // You can do anything in your task such as network requests, timers and so on,
-    // as long as it doesn't touch UI. Once your task completes (i.e. the promise is resolved),
-    // React Native will go into "paused" mode (unless there are other tasks running,
-    // or there is a foreground app).
-    const veryIntensiveTask = async (parameters: any) => {
-      console.log("START OF TASK");
-      // Example of an infinite loop task
+    const attackNotificationsTask = async (parameters: any) => {
       await new Promise(async (resolve) => {
-        var index = commands.findIndex(obj => obj.date > new Date());
-        for (var i = index; i < commands.length; i++) {
-          console.log(commands[i].displayDate);
-
-          // Schedule the notif
+        var nextAttackIndex = commands.findIndex(obj => obj.date > new Date());
+        for (var i = nextAttackIndex; i < commands.length; i++) {
+          // Schedule the next notification
           sendAttackNotif(commands[i]);
 
-          // Update the countdown
+          // Update the countdown every second until the timing is reached
           while (commands[i].date.getTime() > new Date().getTime()) {
             if (!BackgroundService.isRunning()) { return; }
             var countdownText = formatDuration(commands[i].date.getTime() - new Date().getTime());
@@ -260,7 +205,6 @@ const App = () => {
             setCountdownText(countdownText);
             await sleep(1000);
           }
-          console.log("Going to next!");
         }
 
         await BackgroundService.stop();
@@ -276,15 +220,12 @@ const App = () => {
         type: 'mipmap',
       },
       color: '#ff00ff',
-      // linkingURI: 'https://enp12.tribalwars.net/game.php?village=13337&screen=overview', // See Deep Linking for more info
       parameters: {
         delay: 1000,
       },
     };
 
-    await BackgroundService.start(veryIntensiveTask, options);
-    // iOS will also run everything here in the background until .stop() is called
-    // await BackgroundService.stop();
+    await BackgroundService.start(attackNotificationsTask, options);
   }
 
   return (
@@ -292,12 +233,13 @@ const App = () => {
       {displayPreview ? (
         !isRunning ? (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={{ marginBottom: 10 }}>Amount of commands found: {commands?.length}</Text>
-            <Text style={{ marginBottom: 10 }}>Timing of the next command: {getNextAttack(commands)?.displayDate}</Text>
+            <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 20 }}>Confirmation</Text>
+            <Text style={{ marginBottom: 20 }}>Amount of commands found: {commands?.length}</Text>
+            <Text style={{ marginBottom: 20 }}>Timing of the next command: {getNextAttack(commands)?.displayDate}</Text>
             {getLastAttack(commands) && (
-              <Text style={{ marginBottom: 10 }}>Timing of the last command: {getLastAttack(commands)?.displayDate}</Text>
+              <Text style={{ marginBottom: 20 }}>Timing of the last command: {getLastAttack(commands)?.displayDate}</Text>
             )}
-            <Text style={{ marginBottom: 10 }}>Click "Start" to launch the countdown and notifications</Text>
+            <Text style={{ marginBottom: 20 }}>Click "Start" to launch the countdown and notifications</Text>
             <View style={{ flexDirection: 'row' }}>
               <View style={{ marginRight: 10 }}>
                 <Button title="Back" onPress={handleBackClick} />
@@ -320,16 +262,16 @@ const App = () => {
           <Text style={{ fontSize: 24, fontWeight: 'bold' }}>Command Timer</Text>
           <Text style={{ marginTop: 10 }}>
             Paste your text commands in the box below and click "Start countdowns" to set up timers for each command. A
-            warning sound will play a few seconds before the attacks need to be sent.
+            notification will be sent before every attacks.
           </Text>
           <Text style={{ fontSize: 16, marginTop: 40 }}>Commands</Text>
           <TextInput
-            style={{ height: 100, width: "100%", borderWidth: 1, borderColor: '#aaa', padding: 10, marginBottom: 40 }}
+            style={{ height: 100, width: "100%", borderWidth: 1, borderColor: '#aaa', padding: 10, marginBottom: 10 }}
             multiline
             numberOfLines={5}
             value={inputCommands}
-            onChangeText={setInputCommands}
-          />
+            onChangeText={setInputCommands} />
+          <Text style={{ fontSize: 12, marginBottom: 40 }}>The commands needs to use server time.</Text>
           <Text style={{ marginBottom: 20 }}>Warning delay (in seconds)</Text>
           <TextInput
             style={{ width: 100, borderWidth: 1, borderColor: 'black', marginBottom: 10 }}
@@ -337,7 +279,7 @@ const App = () => {
             value={delayInSeconds}
             onChangeText={setDelayInSeconds}
           />
-          <Text style={{ fontSize: 12, marginBottom: 30 }}>Entering 30 will make the warning sound 30 seconds before the timer reaches zero.</Text>
+          <Text style={{ fontSize: 12, marginBottom: 30 }}>Entering 60 will send the notification 60 seconds before the timer reaches zero.</Text>
           <Button title="Start Countdown" onPress={onStartCountdowns} />
         </View>
       )}
