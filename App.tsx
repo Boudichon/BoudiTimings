@@ -23,6 +23,8 @@ const App = () => {
   }
 
   function getDelayInMs() {
+    // If it's empty, we use 60 seconds
+    if (!delayInSeconds) return 60000;
     return Number(delayInSeconds) * 1000;
   }
 

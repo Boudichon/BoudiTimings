@@ -10,15 +10,10 @@
   },
   "dependencies": {
     "@notifee/react-native": "^7.7.1",
-    "@react-native-async-storage/async-storage": "^1.18.1",
-    "@react-native-picker/picker": "^2.4.10",
     "moment": "^2.29.4",
     "react": "18.2.0",
     "react-native": "0.71.7",
-    "react-native-background-actions": "^3.0.0",
-    "react-native-background-timer": "^2.4.1",
-    "react-native-render-html": "^6.3.4",
-    "react-native-sound": "^0.11.2"
+    "react-native-background-actions": "^3.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
