@@ -15,7 +15,7 @@ export async function configureNotifications() {
 
 // Sends the notification for the specified timing based on the delay provided, or instantly if the delay is already passed.
 export async function prepareAttackNotification(timing: Command, notificationDelay: number) {
-    if (timing.date.getTime() - notificationDelay <= 0) {
+    if (timing.date.getTime() - new Date().getTime() - notificationDelay <= 0) {
         await SendInstantCommandNotification(timing);
     } else {
         await SendDelayedCommandNotification(timing, notificationDelay);

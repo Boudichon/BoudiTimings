@@ -10,12 +10,60 @@ export async function stopBackgroundService() {
     await BackgroundService.stop();
 }
 
-export async function UpdateNotificationCountdown(commands: Command[], currentIndex: number) {
+export function isBackgroundServiceRunning() {
+    return BackgroundService.isRunning();
+}
+
+export async function startBackgroundService(commands: Command[], notificationDelay: number) {
+    // Stops ongoing background task, if there is any
+    stopBackgroundService();
+
+    const attackNotificationsTask = async (parameters: any) => {
+        await new Promise(async (resolve) => {
+            var nextAttackIndex = commands.findIndex(obj => obj.date > new Date());
+            for (var i = nextAttackIndex; i < commands.length; i++) {
+
+                // Schedule the next notification
+                prepareAttackNotification(commands[i], notificationDelay);
+
+                // Update the countdown every second until the timing is reached
+                while (commands[i].date.getTime() > new Date().getTime()) {
+                    if (!BackgroundService.isRunning()) { return; }
+
+                    UpdateNotificationCountdown(commands, i);
+
+                    await sleep(1000);
+                }
+            }
+
+            await stopBackgroundService();
+        });
+    };
+
+    const options = {
+        taskName: 'TW Planner',
+        taskTitle: 'The timing notification service is running',
+        taskDesc: '',
+        taskIcon: {
+            name: 'ic_boudilogo',
+            type: 'mipmap',
+        },
+        color: '#ff00ff',
+        parameters: {
+            delay: 1000,
+        },
+        linkingURI: 'boudiTimings://',
+    };
+
+    await BackgroundService.start(attackNotificationsTask, options);
+}
+
+async function UpdateNotificationCountdown(commands: Command[], currentIndex: number) {
     var countdownText = formatDuration(commands[currentIndex].date.getTime() - new Date().getTime());
 
     var otherAttackIn = "";
     if (currentIndex < commands.length - 1) {
-        otherAttackIn = "The subsequent attack is " + formatDuration(commands[currentIndex + 1].date.getTime() - commands[currentIndex].date.getTime()) + " later";
+        otherAttackIn = "The next attack is " + formatDuration(commands[currentIndex + 1].date.getTime() - commands[currentIndex].date.getTime()) + " later";
     }
 
     await BackgroundService.updateNotification({
@@ -23,50 +71,6 @@ export async function UpdateNotificationCountdown(commands: Command[], currentIn
         taskDesc: otherAttackIn
     }); // Only Android, iOS will ignore this call
 }
-
-
-export async function startBackgroundService(commands: Command[], notificationDelay: number) {
-    // Stops ongoing background task, if there is any
-    stopBackgroundService();
-
-    const attackNotificationsTask = async (parameters: any) => {
-      await new Promise(async (resolve) => {
-        var nextAttackIndex = commands.findIndex(obj => obj.date > new Date());
-        for (var i = nextAttackIndex; i < commands.length; i++) {
-          
-          // Schedule the next notification
-          prepareAttackNotification(commands[i], notificationDelay);
-
-          // Update the countdown every second until the timing is reached
-          while (commands[i].date.getTime() > new Date().getTime()) {
-            if (!BackgroundService.isRunning()) { return; }
-
-            UpdateNotificationCountdown(commands, i);
-            
-            await sleep(1000);
-          }
-        }
-
-        await stopBackgroundService();
-      });
-    };
-
-    const options = {
-      taskName: 'TW Planner',
-      taskTitle: 'The timing notification service is running',
-      taskDesc: '',
-      taskIcon: {
-        name: 'ic_boudilogo',
-        type: 'mipmap',
-      },
-      color: '#ff00ff',
-      parameters: {
-        delay: 1000,
-      },
-    };
-
-    await BackgroundService.start(attackNotificationsTask, options);
-  }
 
 
 function formatDuration(milliseconds: number) {
